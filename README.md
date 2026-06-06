@@ -262,6 +262,7 @@ If you want to test it locally, see [Docker](#docker).
 | `skip-invalid-config-update` | Whether to ignore invalid configuration update. <br />See [Reloading configuration on the fly](#reloading-configuration-on-the-fly).     | `false`       |
 | `web`                        | [Web configuration](#web).                                                                                                               | `{}`          |
 | `ui`                         | [UI configuration](#ui).                                                                                                                 | `{}`          |
+| `tenants`                    | [Tenants configuration](#tenants).                                                                                                       | `[]`          |
 | `maintenance`                | [Maintenance configuration](#maintenance).                                                                                               | `{}`          |
 
 If you want more verbose logging, you may set the `GATUS_LOG_LEVEL` environment variable to `DEBUG`.
@@ -279,6 +280,7 @@ You can then configure alerts to be triggered when an endpoint is unhealthy once
 | `endpoints[].enabled`                           | Whether to monitor the endpoint.                                                                                                            | `true`                     |
 | `endpoints[].name`                              | Name of the endpoint. Can be anything.                                                                                                      | Required `""`              |
 | `endpoints[].group`                             | Group name. Used to group multiple endpoints together on the dashboard. <br />See [Endpoint groups](#endpoint-groups).                      | `""`                       |
+| `endpoints[].tenants`                           | List of tenant names this endpoint belongs to. <br />See [Tenants](#tenants).                                                               | `[]`                       |
 | `endpoints[].url`                               | URL to send the request to.                                                                                                                 | Required `""`              |
 | `endpoints[].method`                            | Request method.                                                                                                                             | `GET`                      |
 | `endpoints[].conditions`                        | Conditions used to determine the health of the endpoint. <br />See [Conditions](#conditions).                                               | `[]`                       |
@@ -330,6 +332,7 @@ For instance:
 | `external-endpoints[].enabled`            | Whether to monitor the endpoint.                                                                                                  | `true`         |
 | `external-endpoints[].name`               | Name of the endpoint. Can be anything.                                                                                            | Required `""`  |
 | `external-endpoints[].group`              | Group name. Used to group multiple endpoints together on the dashboard. <br />See [Endpoint groups](#endpoint-groups).            | `""`           |
+| `external-endpoints[].tenants`            | List of tenant names this endpoint belongs to. <br />See [Tenants](#tenants).                                                     | `[]`           |
 | `external-endpoints[].token`              | Bearer token required to push status to.                                                                                          | Required `""`  |
 | `external-endpoints[].alerts`             | List of all alerts for a given endpoint. <br />See [Alerting](#alerting).                                                         | `[]`           |
 | `external-endpoints[].heartbeat`          | Heartbeat configuration for monitoring when the external endpoint stops sending updates.                                          | `{}`           |
@@ -590,6 +593,31 @@ announcements:
 
 If at least one announcement is archived, a **Past Announcements** section will be rendered at the bottom of the status page:
 ![Gatus past announcements section](.github/assets/past-announcements.jpg)
+
+
+### Tenants
+Tenants allow a single Gatus instance to serve multiple distinct status pages using host-based routing. Endpoints are isolated, and the UI adapts dynamically to the requested domain.
+
+| Parameter           | Description                                                               | Default       |
+|:--------------------|:--------------------------------------------------------------------------|:--------------|
+| `tenants`           | List of tenants.                                                          | `[]`          |
+| `tenants[].name`    | Internal identifier for the tenant.                                       | Required `""` |
+| `tenants[].domains` | List of domains (e.g. `status.example.com`) mapping to this tenant.       | Required `[]` |
+| `tenants[].ui`      | Tenant-specific UI overrides. <br />See [UI configuration](#ui).          | `{}`          |
+
+Example Configuration:
+```yaml
+tenants:
+  - name: internal
+    domains: ["status.internal.corp"]
+    ui:
+      title: Internal Status
+
+endpoints:
+  - name: backend-api
+    url: "https://api.internal.corp/health"
+    tenants: ["internal"]
+```
 
 
 ### Storage
