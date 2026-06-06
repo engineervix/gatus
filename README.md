@@ -527,6 +527,7 @@ Allows you to configure how and where the dashboard is being served.
 | `web.read-buffer-size`     | Buffer size for reading requests from a connection. Also limit for the maximum header size. | `8192`    |
 | `web.tls.certificate-file` | Optional public certificate file for TLS in PEM format.                                     | `""`      |
 | `web.tls.private-key-file` | Optional private key file for TLS in PEM format.                                            | `""`      |
+| `web.trusted-proxies`      | List of upstream proxy IPs or CIDR ranges allowed to set `X-Forwarded-Host`. Required for tenant domain resolution behind a reverse proxy. | `[]`      |
 
 ### UI
 Allows you to configure the application wide defaults for the dashboard's UI. Some of these parameters can be overridden locally by users using the local storage of their browser.

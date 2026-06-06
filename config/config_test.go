@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TwiN/logr"
 
 	"github.com/TwiN/gatus/v5/alerting"
 	"github.com/TwiN/gatus/v5/alerting/alert"
@@ -2713,6 +2716,43 @@ endpoints:
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("expected error to contain %q, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestValidateWebConfig_TrustedProxiesWarning(t *testing.T) {
+	var buf bytes.Buffer
+	logr.SetOutput(&buf)
+	defer logr.SetOutput(os.Stdout)
+
+	scenarios := []struct {
+		name           string
+		trustedProxies []string
+		wantWarning    bool
+	}{
+		{
+			name:           "trusted-proxies-set-emits-warning",
+			trustedProxies: []string{"10.0.0.1"},
+			wantWarning:    true,
+		},
+		{
+			name:           "no-trusted-proxies-no-warning",
+			trustedProxies: nil,
+			wantWarning:    false,
+		},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			buf.Reset()
+			cfg := &Config{Web: &web.Config{TrustedProxies: sc.trustedProxies}}
+			if err := ValidateWebConfig(cfg); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := buf.String()
+			hasWarning := strings.Contains(got, "X-Forwarded-Host")
+			if hasWarning != sc.wantWarning {
+				t.Errorf("wantWarning=%v but log output was: %q", sc.wantWarning, got)
 			}
 		})
 	}

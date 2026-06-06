@@ -582,7 +582,12 @@ func ValidateWebConfig(config *Config) error {
 	if config.Web == nil {
 		config.Web = web.GetDefaultConfig()
 	} else {
-		return config.Web.ValidateAndSetDefaults()
+		if err := config.Web.ValidateAndSetDefaults(); err != nil {
+			return err
+		}
+	}
+	if len(config.Web.TrustedProxies) > 0 {
+		logr.Warn("[config] trusted-proxies is set — ensure your reverse proxy forwards the X-Forwarded-Host header for tenant domain resolution to work correctly")
 	}
 	return nil
 }
