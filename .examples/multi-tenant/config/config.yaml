@@ -1,0 +1,55 @@
+# Only set trusted-proxies when Gatus sits behind a reverse proxy that
+# forwards X-Forwarded-Host. Leave unset for direct exposure.
+web:
+  trusted-proxies:
+    - 127.0.0.1
+
+ui:
+  title: "My Status"
+  header: "My Services"
+
+tenants:
+  - name: acme
+    domains:
+      - status.acme-corp.com
+    ui:
+      title: "Acme Status"
+      header: "Acme Platform"
+
+  - name: globex
+    domains:
+      - status.globex.io
+    ui:
+      title: "Globex Status"
+      header: "Globex Services"
+
+endpoints:
+  # No tenants field → visible only on the operator (default) domain.
+  - name: healthchecks-ping
+    url: "${HEALTHCHECKS_PING_URL}"
+    interval: 5m
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: acme-web
+    url: https://app.acme-corp.com/health
+    interval: 5m
+    tenants: [acme]
+    conditions:
+      - "[STATUS] == 200"
+      - "[CERTIFICATE_EXPIRATION] > 48h"
+
+  - name: acme-api
+    url: https://api.acme-corp.com/health
+    interval: 5m
+    tenants: [acme]
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: globex-api
+    url: https://api.globex.io/health
+    interval: 5m
+    tenants: [globex]
+    conditions:
+      - "[STATUS] == 200"
+      - "[RESPONSE_TIME] < 500"
