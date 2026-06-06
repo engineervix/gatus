@@ -163,6 +163,20 @@ func (e *Endpoint) IsEnabled() bool {
 	return *e.Enabled
 }
 
+// BelongsToTenant reports whether this endpoint is visible on the given tenant domain.
+// An empty tenantName represents the default (unbranded) domain.
+func (e *Endpoint) BelongsToTenant(tenantName string) bool {
+	if tenantName == "" {
+		return len(e.Tenants) == 0
+	}
+	for _, t := range e.Tenants {
+		if t == tenantName {
+			return true
+		}
+	}
+	return false
+}
+
 // Type returns the endpoint type
 func (e *Endpoint) Type() Type {
 	switch {

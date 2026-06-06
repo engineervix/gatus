@@ -31,6 +31,10 @@ type ExternalEndpoint struct {
 	// Group the endpoint is a part of. Used for grouping multiple endpoints together on the front end.
 	Group string `yaml:"group,omitempty"`
 
+	// Tenants the endpoint belongs to. Used for multi-tenant support.
+	// If empty, the external endpoint is only visible on the default (unbranded) domain.
+	Tenants []string `yaml:"tenants,omitempty"`
+
 	// Token is the bearer token that must be provided through the Authorization header to push results to the endpoint
 	Token string `yaml:"token,omitempty"`
 
@@ -65,6 +69,20 @@ func (externalEndpoint *ExternalEndpoint) ValidateAndSetDefaults() error {
 	return nil
 }
 
+// BelongsToTenant reports whether this external endpoint is visible on the given tenant domain.
+// An empty tenantName represents the default (unbranded) domain.
+func (externalEndpoint *ExternalEndpoint) BelongsToTenant(tenantName string) bool {
+	if tenantName == "" {
+		return len(externalEndpoint.Tenants) == 0
+	}
+	for _, t := range externalEndpoint.Tenants {
+		if t == tenantName {
+			return true
+		}
+	}
+	return false
+}
+
 // IsEnabled returns whether the endpoint is enabled or not
 func (externalEndpoint *ExternalEndpoint) IsEnabled() bool {
 	if externalEndpoint.Enabled == nil {
@@ -92,6 +110,7 @@ func (externalEndpoint *ExternalEndpoint) ToEndpoint() *Endpoint {
 		Enabled:                 externalEndpoint.Enabled,
 		Name:                    externalEndpoint.Name,
 		Group:                   externalEndpoint.Group,
+		Tenants:                 externalEndpoint.Tenants,
 		Alerts:                  externalEndpoint.Alerts,
 		NumberOfFailuresInARow:  externalEndpoint.NumberOfFailuresInARow,
 		NumberOfSuccessesInARow: externalEndpoint.NumberOfSuccessesInARow,
