@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -153,14 +154,20 @@ func (config *Config) GetUniqueExtraMetricLabels() []string {
 	return labels
 }
 
-// GetTenantByDomain returns the first tenant that matches the provided domain
+// GetTenantByDomain returns the first tenant that matches the provided domain.
+// The port is stripped before comparison so that requests on non-standard ports
+// (e.g. "status.clienta.com:8443") still resolve correctly.
 func (config *Config) GetTenantByDomain(domain string) *tenant.Tenant {
 	if config.Tenants == nil {
 		return nil
 	}
+	host := domain
+	if h, _, err := net.SplitHostPort(domain); err == nil {
+		host = h
+	}
 	for _, t := range config.Tenants {
 		for _, d := range t.Domains {
-			if strings.EqualFold(d, domain) {
+			if strings.EqualFold(d, host) {
 				return t
 			}
 		}
@@ -336,6 +343,9 @@ func parseAndValidateConfigBytes(yamlBytes []byte) (config *Config, err error) {
 		if err := ValidateTenantsConfig(config); err != nil {
 			return nil, err
 		}
+		if err := ValidateTenantEndpointsCrossValidation(config); err != nil {
+			return nil, err
+		}
 		if err := ValidateMaintenanceConfig(config); err != nil {
 			return nil, err
 		}
@@ -485,18 +495,54 @@ func ValidateUIConfig(config *Config) error {
 }
 
 func ValidateTenantsConfig(config *Config) error {
-	if config.Tenants != nil {
-		tenantNames := make(map[string]bool)
-		for _, t := range config.Tenants {
-			if tenantNames[t.Name] {
-				return fmt.Errorf("duplicate tenant name: %s", t.Name)
+	tenantNames := make(map[string]bool)
+	seenDomains := make(map[string]string) // normalised domain → tenant name (for error messages)
+	for _, t := range config.Tenants {
+		if tenantNames[t.Name] {
+			return fmt.Errorf("duplicate tenant name: %s", t.Name)
+		}
+		tenantNames[t.Name] = true
+		for _, d := range t.Domains {
+			nd := strings.ToLower(d)
+			if existing, found := seenDomains[nd]; found {
+				return fmt.Errorf("domain %q is configured for both tenant %q and tenant %q", d, existing, t.Name)
 			}
-			tenantNames[t.Name] = true
-			if err := t.ValidateAndSetDefaults(); err != nil {
-				return fmt.Errorf("invalid tenant '%s': %w", t.Name, err)
+			seenDomains[nd] = t.Name
+		}
+		if err := t.ValidateAndSetDefaults(); err != nil {
+			return fmt.Errorf("invalid tenant '%s': %w", t.Name, err)
+		}
+	}
+	if len(config.Tenants) > 0 {
+		logr.Infof("[config.ValidateTenantsConfig] Validated %d tenant(s)", len(config.Tenants))
+	}
+	return nil
+}
+
+// ValidateTenantEndpointsCrossValidation verifies that every tenant name referenced in
+// an endpoint's Tenants slice exists in the configured tenants list.
+// Must be called after ValidateTenantsConfig.
+func ValidateTenantEndpointsCrossValidation(config *Config) error {
+	if len(config.Tenants) == 0 {
+		return nil
+	}
+	validTenants := make(map[string]bool, len(config.Tenants))
+	for _, t := range config.Tenants {
+		validTenants[t.Name] = true
+	}
+	for _, ep := range config.Endpoints {
+		for _, ref := range ep.Tenants {
+			if !validTenants[ref] {
+				return fmt.Errorf("endpoint %q references unknown tenant %q", ep.Key(), ref)
 			}
 		}
-		logr.Infof("[config.ValidateTenantsConfig] Validated %d tenant(s)", len(config.Tenants))
+	}
+	for _, ee := range config.ExternalEndpoints {
+		for _, ref := range ee.Tenants {
+			if !validTenants[ref] {
+				return fmt.Errorf("external endpoint %q references unknown tenant %q", ee.Key(), ref)
+			}
+		}
 	}
 	return nil
 }

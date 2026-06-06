@@ -40,6 +40,14 @@ type Config struct {
 
 	// TLS configuration (optional)
 	TLS *TLSConfig `yaml:"tls,omitempty"`
+
+	// TrustedProxies is an optional list of IP addresses or CIDR ranges that Gatus
+	// will trust as upstream reverse proxies. When set, the X-Forwarded-Host header
+	// from those IPs is used for tenant domain resolution. Leave empty (the default)
+	// to rely solely on the Host header, which is the safe default for direct exposure.
+	//
+	// Example: ["10.0.0.1", "10.0.0.0/8"]
+	TrustedProxies []string `yaml:"trusted-proxies,omitempty"`
 }
 
 type TLSConfig struct {
