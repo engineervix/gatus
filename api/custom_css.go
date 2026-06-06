@@ -11,7 +11,7 @@ type CustomCSSHandler struct {
 
 func (handler CustomCSSHandler) GetCustomCSS(c *fiber.Ctx) error {
 	css := handler.cfg.UI.CustomCSS
-	if t := handler.cfg.GetTenantByDomain(c.Hostname()); t != nil && t.UI != nil && len(t.UI.CustomCSS) > 0 {
+	if t := handler.cfg.GetTenantByDomain(c.Hostname()); t != nil && t.UI != nil {
 		css = t.UI.CustomCSS
 	}
 	c.Set("Content-Type", "text/css")
