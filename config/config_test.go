@@ -2757,3 +2757,29 @@ func TestValidateWebConfig_TrustedProxiesWarning(t *testing.T) {
 		})
 	}
 }
+
+func TestGetSuiteByKey_CaseNormalisation(t *testing.T) {
+	cfg := &Config{
+		Suites: []*suite.Suite{
+			{Name: "my-suite", Group: "core"},
+		},
+	}
+	tests := []struct {
+		input string
+		found bool
+	}{
+		{"core_my-suite", true},
+		{"Core_My-Suite", true},
+		{"CORE_MY-SUITE", true},
+		{"core_other", false},
+	}
+	for _, tt := range tests {
+		got := cfg.GetSuiteByKey(tt.input)
+		if tt.found && got == nil {
+			t.Errorf("GetSuiteByKey(%q) = nil, want non-nil", tt.input)
+		}
+		if !tt.found && got != nil {
+			t.Errorf("GetSuiteByKey(%q) = non-nil, want nil", tt.input)
+		}
+	}
+}

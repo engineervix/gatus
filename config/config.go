@@ -197,7 +197,7 @@ func (config *Config) GetExternalEndpointByKey(key string) *endpoint.ExternalEnd
 
 func (config *Config) GetSuiteByKey(key string) *suite.Suite {
 	for _, s := range config.Suites {
-		if s.Key() == key {
+		if s.Key() == strings.ToLower(key) {
 			return s
 		}
 	}
