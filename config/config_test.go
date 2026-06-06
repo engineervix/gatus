@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -2625,6 +2626,93 @@ func TestResolveTunnelForClientConfig(t *testing.T) {
 			}
 			if err != nil {
 				t.Errorf("resolveTunnelForClientConfig() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateTenantEndpointsCrossValidation_NoTenantsBlock(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "endpoint references tenant but no tenants block",
+			yaml: `
+endpoints:
+  - name: api
+    group: backend
+    url: https://example.com
+    tenants: [client-a]
+    conditions:
+      - "[STATUS] == 200"
+`,
+			wantErr: `backend_api`,
+		},
+		{
+			name: "external endpoint references tenant but no tenants block",
+			yaml: `
+endpoints:
+  - name: api
+    group: backend
+    url: https://example.com
+    conditions:
+      - "[STATUS] == 200"
+
+external-endpoints:
+  - name: agent
+    group: infra
+    token: secret
+    tenants: [client-b]
+    heartbeat:
+      interval: 5m
+`,
+			wantErr: `infra_agent`,
+		},
+		{
+			name: "suite references tenant but no tenants block",
+			yaml: `
+suites:
+  - name: smoke
+    group: qa
+    tenants: [client-c]
+    interval: 30s
+    endpoints:
+      - name: step1
+        url: https://example.com
+        conditions:
+          - "[STATUS] == 200"
+`,
+			wantErr: `qa_smoke`,
+		},
+		{
+			name: "no tenant references — valid without tenants block",
+			yaml: `
+endpoints:
+  - name: api
+    group: backend
+    url: https://example.com
+    conditions:
+      - "[STATUS] == 200"
+`,
+			wantErr: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseAndValidateConfigBytes([]byte(tt.yaml))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("expected no error, got: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("expected error to contain %q, got: %v", tt.wantErr, err)
 			}
 		})
 	}

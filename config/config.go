@@ -533,6 +533,21 @@ func ValidateTenantsConfig(config *Config) error {
 // Must be called after ValidateTenantsConfig.
 func ValidateTenantEndpointsCrossValidation(config *Config) error {
 	if len(config.Tenants) == 0 {
+		for _, ep := range config.Endpoints {
+			if len(ep.Tenants) > 0 {
+				return fmt.Errorf("endpoint %q references tenant %q but no tenants are configured", ep.Key(), ep.Tenants[0])
+			}
+		}
+		for _, ee := range config.ExternalEndpoints {
+			if len(ee.Tenants) > 0 {
+				return fmt.Errorf("external endpoint %q references tenant %q but no tenants are configured", ee.Key(), ee.Tenants[0])
+			}
+		}
+		for _, s := range config.Suites {
+			if len(s.Tenants) > 0 {
+				return fmt.Errorf("suite %q references tenant %q but no tenants are configured", s.Key(), s.Tenants[0])
+			}
+		}
 		return nil
 	}
 	validTenants := make(map[string]bool, len(config.Tenants))
