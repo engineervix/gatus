@@ -53,6 +53,10 @@ func (a *API) createRouter(cfg *config.Config) *fiber.App {
 		ReadBufferSize: cfg.Web.ReadBufferSize,
 		Network:        fiber.NetworkTCP,
 		Immutable:      true, // If not enabled, will cause issues due to fiber's zero allocation. See #1268 and https://docs.gofiber.io/#zero-allocation
+		// EnableTrustedProxyCheck prevents X-Forwarded-Host header spoofing.
+		// Only IPs listed in TrustedProxies are allowed to set that header.
+		EnableTrustedProxyCheck: true,
+		TrustedProxies:          cfg.Web.TrustedProxies,
 	})
 	if os.Getenv("ENVIRONMENT") == "dev" {
 		app.Use(cors.New(cors.Config{
@@ -77,14 +81,14 @@ func (a *API) createRouter(cfg *config.Config) *fiber.App {
 	////////////////////////
 	unprotectedAPIRouter := apiRouter.Group("/")
 	unprotectedAPIRouter.Get("/v1/config", ConfigHandler{securityConfig: cfg.Security, config: cfg}.GetConfig)
-	unprotectedAPIRouter.Get("/v1/endpoints/:key/health/badge.svg", HealthBadge)
-	unprotectedAPIRouter.Get("/v1/endpoints/:key/health/badge.shields", HealthBadgeShields)
-	unprotectedAPIRouter.Get("/v1/endpoints/:key/uptimes/:duration", UptimeRaw)
-	unprotectedAPIRouter.Get("/v1/endpoints/:key/uptimes/:duration/badge.svg", UptimeBadge)
-	unprotectedAPIRouter.Get("/v1/endpoints/:key/response-times/:duration", ResponseTimeRaw)
+	unprotectedAPIRouter.Get("/v1/endpoints/:key/health/badge.svg", HealthBadge(cfg))
+	unprotectedAPIRouter.Get("/v1/endpoints/:key/health/badge.shields", HealthBadgeShields(cfg))
+	unprotectedAPIRouter.Get("/v1/endpoints/:key/uptimes/:duration", UptimeRaw(cfg))
+	unprotectedAPIRouter.Get("/v1/endpoints/:key/uptimes/:duration/badge.svg", UptimeBadge(cfg))
+	unprotectedAPIRouter.Get("/v1/endpoints/:key/response-times/:duration", ResponseTimeRaw(cfg))
 	unprotectedAPIRouter.Get("/v1/endpoints/:key/response-times/:duration/badge.svg", ResponseTimeBadge(cfg))
-	unprotectedAPIRouter.Get("/v1/endpoints/:key/response-times/:duration/chart.svg", ResponseTimeChart)
-	unprotectedAPIRouter.Get("/v1/endpoints/:key/response-times/:duration/history", ResponseTimeHistory)
+	unprotectedAPIRouter.Get("/v1/endpoints/:key/response-times/:duration/chart.svg", ResponseTimeChart(cfg))
+	unprotectedAPIRouter.Get("/v1/endpoints/:key/response-times/:duration/history", ResponseTimeHistory(cfg))
 	// This endpoint requires authz with bearer token, so technically it is protected
 	unprotectedAPIRouter.Post("/v1/endpoints/:key/external", CreateExternalEndpointResult(cfg))
 	// SPA
@@ -98,7 +102,7 @@ func (a *API) createRouter(cfg *config.Config) *fiber.App {
 		return c.Status(statusCode).Send(body)
 	})
 	// Custom CSS
-	app.Get("/css/custom.css", CustomCSSHandler{customCSS: cfg.UI.CustomCSS}.GetCustomCSS)
+	app.Get("/css/custom.css", CustomCSSHandler{cfg: cfg}.GetCustomCSS)
 	// Everything else falls back on static content
 	app.Use(redirect.New(redirect.Config{
 		Rules: map[string]string{
