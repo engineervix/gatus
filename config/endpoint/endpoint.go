@@ -88,6 +88,9 @@ type Endpoint struct {
 	// Group the endpoint is a part of. Used for grouping multiple endpoints together on the front end.
 	Group string `yaml:"group,omitempty"`
 
+	// Tenants the endpoint belongs to. Used for multi-tenant support.
+	Tenants []string `yaml:"tenants,omitempty"`
+
 	// URL to send the request to
 	URL string `yaml:"url"`
 
