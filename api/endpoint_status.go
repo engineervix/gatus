@@ -124,6 +124,8 @@ func EndpointStatus(cfg *config.Config) fiber.Handler {
 			if !ee.BelongsToTenant(tenantName) {
 				return c.Status(404).SendString("not found")
 			}
+		} else {
+			return c.Status(404).SendString("not found")
 		}
 		endpointStatus, err := store.Get().GetEndpointStatusByKey(key, paging.NewEndpointStatusParams().WithResults(page, pageSize).WithEvents(1, cfg.Storage.MaximumNumberOfEvents))
 		if err != nil {

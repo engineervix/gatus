@@ -15,6 +15,9 @@ import (
 	"github.com/TwiN/gatus/v5/watchdog"
 )
 
+// ghostEndpoint is a previously-monitored endpoint removed from config but still in the store.
+var ghostEndpoint = endpoint.Endpoint{Name: "old-service", Group: "legacy"}
+
 var (
 	timestamp = time.Now()
 
@@ -147,6 +150,57 @@ func TestEndpointStatus(t *testing.T) {
 			}
 			if response.StatusCode != scenario.ExpectedCode {
 				t.Errorf("%s %s should have returned %d, but returned %d instead", request.Method, request.URL, scenario.ExpectedCode, response.StatusCode)
+			}
+		})
+	}
+}
+
+// TestEndpointStatusGhostKey verifies that keys present in the store but absent from
+// config are denied at the access layer, not passed through to the store.
+func TestEndpointStatusGhostKey(t *testing.T) {
+	defer store.Get().Clear()
+	defer cache.Clear()
+	store.Get().InsertEndpointResult(&ghostEndpoint, &endpoint.Result{
+		HTTPStatus: 200,
+		Success:    true,
+		Duration:   time.Millisecond,
+		Timestamp:  time.Now(),
+	})
+	cfg := &config.Config{
+		Endpoints: []*endpoint.Endpoint{
+			{Name: "frontend", Group: "core", Tenants: []string{"client-a"}},
+		},
+		Tenants: []*tenant.Tenant{
+			{Name: "client-a", Domains: []string{"status.clienta.com"}},
+		},
+		Storage: &storage.Config{
+			MaximumNumberOfResults: storage.DefaultMaximumNumberOfResults,
+			MaximumNumberOfEvents:  storage.DefaultMaximumNumberOfEvents,
+		},
+	}
+	router := New(cfg).Router()
+	ghostKey := ghostEndpoint.Key()
+
+	tests := []struct {
+		name     string
+		host     string
+		wantCode int
+	}{
+		{"ghost key denied on tenant domain", "status.clienta.com", http.StatusNotFound},
+		{"ghost key denied on default domain", "", http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/v1/endpoints/"+ghostKey+"/statuses", http.NoBody)
+			if tt.host != "" {
+				req.Host = tt.host
+			}
+			resp, err := router.Test(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != tt.wantCode {
+				t.Errorf("expected %d, got %d", tt.wantCode, resp.StatusCode)
 			}
 		})
 	}
