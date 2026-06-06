@@ -601,6 +601,8 @@ Tenants allow a single Gatus instance to serve multiple distinct status pages us
 
 > [!WARNING]
 > When deploying behind a reverse proxy (e.g., NGINX, Traefik), you must ensure that your proxy forwards the original `Host` header or `X-Forwarded-Host`. If using `X-Forwarded-Host`, you **must** add your proxy's IP address to the `web.trusted-proxies` configuration to prevent host spoofing.
+>
+> **Caddy** sets `X-Forwarded-Host` automatically from the incoming `Host` header ([reverse_proxy defaults](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#defaults)) — no `header_up` directive is needed. Set `web.trusted-proxies: ["127.0.0.1"]` when Caddy runs on the same host as Gatus. If Cloudflare sits in front of Caddy, configure Caddy's [`trusted_proxies`](https://caddyserver.com/docs/caddyfile/options#trusted-proxies) global option with [Cloudflare's IP ranges](https://www.cloudflare.com/ips/) and `trusted_proxies_strict` so real client IPs are correctly resolved.
 
 | Parameter           | Description                                                               | Default       |
 |:--------------------|:--------------------------------------------------------------------------|:--------------|
