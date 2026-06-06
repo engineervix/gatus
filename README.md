@@ -598,6 +598,9 @@ If at least one announcement is archived, a **Past Announcements** section will 
 ### Tenants
 Tenants allow a single Gatus instance to serve multiple distinct status pages using host-based routing. Endpoints are isolated, and the UI adapts dynamically to the requested domain.
 
+> [!WARNING]
+> When deploying behind a reverse proxy (e.g., NGINX, Traefik), you must ensure that your proxy forwards the original `Host` header or `X-Forwarded-Host`. If using `X-Forwarded-Host`, you **must** add your proxy's IP address to the `web.trusted-proxies` configuration to prevent host spoofing.
+
 | Parameter           | Description                                                               | Default       |
 |:--------------------|:--------------------------------------------------------------------------|:--------------|
 | `tenants`           | List of tenants.                                                          | `[]`          |
