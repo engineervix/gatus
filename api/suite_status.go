@@ -33,7 +33,7 @@ func SuiteStatuses(cfg *config.Config) fiber.Handler {
 			var filtered []*suite.Status
 			for _, s := range suiteStatuses {
 				if su := cfg.GetSuiteByKey(s.Key); su != nil {
-					if su.BelongsToTenant(tenantName) {
+					if su.IsEnabled() && su.BelongsToTenant(tenantName) {
 						filtered = append(filtered, s)
 					}
 				} else if tenantName == "" {
@@ -52,26 +52,14 @@ func SuiteStatus(cfg *config.Config) fiber.Handler {
 		tenantName := resolveTenantName(cfg, c.Hostname())
 		page, pageSize := extractPageAndPageSizeFromRequest(c, 100)
 		key := c.Params("key")
-		if su := cfg.GetSuiteByKey(key); su != nil {
-			if !su.BelongsToTenant(tenantName) {
-				return c.Status(404).JSON(fiber.Map{"error": fmt.Sprintf("Suite with key '%s' not found", key)})
-			}
+		su := cfg.GetSuiteByKey(key)
+		if su == nil || !su.BelongsToTenant(tenantName) {
+			return c.Status(404).SendString("not found")
 		}
 		params := paging.NewSuiteStatusParams().WithPagination(page, pageSize)
 		status, err := store.Get().GetSuiteStatusByKey(key, params)
 		if err != nil || status == nil {
-			// Try to find the suite in config
-			for _, s := range cfg.Suites {
-				if s.Key() == key {
-					status = suite.NewStatus(s)
-					break
-				}
-			}
-			if status == nil {
-				return c.Status(404).JSON(fiber.Map{
-					"error": fmt.Sprintf("Suite with key '%s' not found", key),
-				})
-			}
+			status = suite.NewStatus(su)
 		}
 		return c.Status(fiber.StatusOK).JSON(status)
 	}

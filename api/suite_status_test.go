@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -287,7 +288,7 @@ func TestSuiteStatus_SuiteNotInStoreButInConfig(t *testing.T) {
 				},
 			},
 			expectedCode: http.StatusNotFound,
-			expectError:  "Suite with key 'nonexistent_suite' not found",
+			expectError:  "not found",
 		},
 		{
 			name:     "suite-with-empty-group-in-config",
@@ -599,6 +600,145 @@ func TestSuiteStatuses_TenantFiltering(t *testing.T) {
 				if scenario.ShouldExclude != "" && contains(bodyStr, scenario.ShouldExclude) {
 					t.Errorf("expected body NOT to contain %q, got: %s", scenario.ShouldExclude, bodyStr)
 				}
+			}
+		})
+	}
+}
+
+func TestSuiteStatus_404IsPlainText(t *testing.T) {
+	// All SuiteStatus 404s must return plain text to match EndpointStatus.
+	// Uses a mixed-case key to also exercise the normalisation path: the guard
+	// finds the suite via GetSuiteByKey (which lowercases), but without the fix
+	// the fallback loop uses the raw key and misses, returning a JSON 404.
+	defer store.Get().Clear()
+	defer cache.Clear()
+	cfg := &config.Config{
+		Suites: []*suite.Suite{
+			{Name: "cold-suite", Group: "test"}, // no store records
+		},
+	}
+	router := New(cfg).Router()
+	scenarios := []struct {
+		name         string
+		path         string
+		expectedCode int
+	}{
+		// key not in config at all → 404 plain text
+		{"not-in-config", "/api/v1/suites/test_ghost/statuses", http.StatusNotFound},
+		// mixed-case key for a suite with no store records:
+		// guard passes (GetSuiteByKey lowercases), fallback must serve stub (not JSON 404)
+		{"mixed-case-no-store-returns-stub", "/api/v1/suites/Test_Cold-Suite/statuses", http.StatusOK},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, sc.path, http.NoBody)
+			resp, err := router.Test(req)
+			if err != nil {
+				t.Fatalf("router.Test: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != sc.expectedCode {
+				t.Errorf("expected %d, got %d", sc.expectedCode, resp.StatusCode)
+				return
+			}
+			ct := resp.Header.Get("Content-Type")
+			if sc.expectedCode == http.StatusNotFound && strings.Contains(ct, "application/json") {
+				t.Errorf("404 must not be JSON (Content-Type: %s)", ct)
+			}
+		})
+	}
+}
+
+func TestSuiteStatuses_DisabledSuiteWithStoreRecordsIsHidden(t *testing.T) {
+	disabledSuite := &suite.Suite{Name: "disabled-suite", Group: "test", Enabled: boolPtr(false)}
+	enabledSuite := &suite.Suite{Name: "enabled-suite", Group: "test"}
+	// Both have store records
+	watchdog.UpdateSuiteStatus(disabledSuite, &suite.Result{Success: true, Duration: time.Millisecond, Timestamp: time.Now(), Name: disabledSuite.Name, Group: disabledSuite.Group})
+	watchdog.UpdateSuiteStatus(enabledSuite, &suite.Result{Success: true, Duration: time.Millisecond, Timestamp: time.Now(), Name: enabledSuite.Name, Group: enabledSuite.Group})
+	defer store.Get().Clear()
+	defer cache.Clear()
+
+	cfg := &config.Config{
+		Suites: []*suite.Suite{disabledSuite, enabledSuite},
+	}
+	router := New(cfg).Router()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/suites/statuses", http.NoBody)
+	resp, err := router.Test(req)
+	if err != nil {
+		t.Fatalf("router.Test: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	if contains(bodyStr, "disabled-suite") {
+		t.Errorf("disabled suite must not appear in SuiteStatuses response, got: %s", bodyStr)
+	}
+	if !contains(bodyStr, "enabled-suite") {
+		t.Errorf("enabled suite must appear in SuiteStatuses response, got: %s", bodyStr)
+	}
+}
+
+func TestSuiteStatus_GhostKeyAndFallbackTenantChecks(t *testing.T) {
+	ghostSuite := &suite.Suite{Name: "removed-suite", Group: "tenanted"}
+	tenantSuite := &suite.Suite{Name: "tenant-suite", Group: "tenanted", Tenants: []string{"client-a"}}
+	defaultSuite := &suite.Suite{Name: "default-suite", Group: "tenanted"}
+	// Seed the store for the ghost and tenant suites
+	watchdog.UpdateSuiteStatus(ghostSuite, &suite.Result{Success: true, Duration: time.Millisecond, Timestamp: time.Now(), Name: ghostSuite.Name, Group: ghostSuite.Group})
+	watchdog.UpdateSuiteStatus(tenantSuite, &suite.Result{Success: true, Duration: time.Millisecond, Timestamp: time.Now(), Name: tenantSuite.Name, Group: tenantSuite.Group})
+	defer store.Get().Clear()
+	defer cache.Clear()
+
+	// Config does NOT include ghostSuite — simulates a removed suite still in the store
+	cfg := &config.Config{
+		Suites: []*suite.Suite{tenantSuite, defaultSuite},
+		Tenants: []*tenant.Tenant{
+			{Name: "client-a", Domains: []string{"status.clienta.com"}},
+		},
+	}
+	router := New(cfg).Router()
+
+	scenarios := []struct {
+		name         string
+		host         string
+		path         string
+		expectedCode int
+	}{
+		{
+			// Ghost key: in store but absent from config — any domain must get 404
+			name:         "ghost-key-on-default-domain-returns-404",
+			host:         "",
+			path:         "/api/v1/suites/tenanted_removed-suite/statuses",
+			expectedCode: http.StatusNotFound,
+		},
+		{
+			// Ghost key: tenant domain must also get 404
+			name:         "ghost-key-on-tenant-domain-returns-404",
+			host:         "status.clienta.com",
+			path:         "/api/v1/suites/tenanted_removed-suite/statuses",
+			expectedCode: http.StatusNotFound,
+		},
+		{
+			// Fallback path: default-only suite requested from a tenant domain with empty store
+			// Should return 404, not serve a stub built from config without tenant check
+			name:         "config-fallback-respects-tenant-on-tenant-domain",
+			host:         "status.clienta.com",
+			path:         "/api/v1/suites/tenanted_default-suite/statuses",
+			expectedCode: http.StatusNotFound,
+		},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, sc.path, http.NoBody)
+			if sc.host != "" {
+				req.Host = sc.host
+			}
+			resp, err := router.Test(req)
+			if err != nil {
+				t.Fatalf("router.Test: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != sc.expectedCode {
+				t.Errorf("path=%s host=%s: expected %d, got %d", sc.path, sc.host, sc.expectedCode, resp.StatusCode)
 			}
 		})
 	}
