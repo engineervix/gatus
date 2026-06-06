@@ -14,8 +14,8 @@ func resolveTenantName(cfg *config.Config, hostname string) string {
 }
 
 // hasEndpointAccess reports whether the given hostname has permission to view the
-// endpoint identified by key. Unknown keys (not in config) are allowed through so
-// the store can return its own ErrEndpointNotFound.
+// endpoint identified by key. Keys absent from config are denied; the store will
+// return ErrEndpointNotFound for keys that genuinely do not exist.
 func hasEndpointAccess(cfg *config.Config, hostname, key string) bool {
 	tenantName := resolveTenantName(cfg, hostname)
 	if ep := cfg.GetEndpointByKey(key); ep != nil {
@@ -24,5 +24,5 @@ func hasEndpointAccess(cfg *config.Config, hostname, key string) bool {
 	if ee := cfg.GetExternalEndpointByKey(key); ee != nil {
 		return ee.BelongsToTenant(tenantName)
 	}
-	return true
+	return false
 }
