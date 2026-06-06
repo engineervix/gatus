@@ -10,6 +10,7 @@ import (
 	"github.com/TwiN/gatus/v5/config"
 	"github.com/TwiN/gatus/v5/config/endpoint"
 	"github.com/TwiN/gatus/v5/config/suite"
+	"github.com/TwiN/gatus/v5/config/tenant"
 	"github.com/TwiN/gatus/v5/storage"
 	"github.com/TwiN/gatus/v5/storage/store"
 	"github.com/TwiN/gatus/v5/watchdog"
@@ -498,6 +499,108 @@ func TestSuiteStatuses_NoSuitesInStoreButExistInConfig(t *testing.T) {
 	}
 	if contains(bodyStr, "disabled-suite") {
 		t.Error("Should not include disabled-suite in response")
+	}
+}
+
+func TestSuiteStatuses_TenantFiltering(t *testing.T) {
+	defer store.Get().Clear()
+	defer cache.Clear()
+	clientASuite := &suite.Suite{
+		Name:    "client-a-suite",
+		Group:   "tenanted",
+		Tenants: []string{"client-a"},
+	}
+	defaultSuite := &suite.Suite{
+		Name:  "default-suite",
+		Group: "tenanted",
+	}
+	watchdog.UpdateSuiteStatus(clientASuite, &suite.Result{Success: true, Duration: time.Millisecond, Timestamp: time.Now(), Name: clientASuite.Name, Group: clientASuite.Group})
+	watchdog.UpdateSuiteStatus(defaultSuite, &suite.Result{Success: true, Duration: time.Millisecond, Timestamp: time.Now(), Name: defaultSuite.Name, Group: defaultSuite.Group})
+	cfg := &config.Config{
+		Metrics: true,
+		Suites:  []*suite.Suite{clientASuite, defaultSuite},
+		Tenants: []*tenant.Tenant{
+			{Name: "client-a", Domains: []string{"status.clienta.com"}},
+		},
+		Storage: &storage.Config{
+			MaximumNumberOfResults: storage.DefaultMaximumNumberOfResults,
+			MaximumNumberOfEvents:  storage.DefaultMaximumNumberOfEvents,
+		},
+	}
+	api := New(cfg)
+	router := api.Router()
+	type Scenario struct {
+		Name          string
+		Host          string
+		Path          string
+		ExpectedCode  int
+		ShouldContain string
+		ShouldExclude string
+	}
+	scenarios := []Scenario{
+		{
+			Name:          "default-domain-sees-only-default-suite",
+			Host:          "",
+			Path:          "/api/v1/suites/statuses",
+			ExpectedCode:  http.StatusOK,
+			ShouldContain: "default-suite",
+			ShouldExclude: "client-a-suite",
+		},
+		{
+			Name:          "tenant-domain-sees-only-its-suite",
+			Host:          "status.clienta.com",
+			Path:          "/api/v1/suites/statuses",
+			ExpectedCode:  http.StatusOK,
+			ShouldContain: "client-a-suite",
+			ShouldExclude: "default-suite",
+		},
+		{
+			Name:         "tenant-domain-cannot-access-default-suite",
+			Host:         "status.clienta.com",
+			Path:         "/api/v1/suites/tenanted_default-suite/statuses",
+			ExpectedCode: http.StatusNotFound,
+		},
+		{
+			Name:         "default-domain-cannot-access-tenant-suite",
+			Host:         "",
+			Path:         "/api/v1/suites/tenanted_client-a-suite/statuses",
+			ExpectedCode: http.StatusNotFound,
+		},
+		{
+			Name:         "tenant-domain-can-access-its-suite",
+			Host:         "status.clienta.com",
+			Path:         "/api/v1/suites/tenanted_client-a-suite/statuses",
+			ExpectedCode: http.StatusOK,
+		},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.Name, func(t *testing.T) {
+			request := httptest.NewRequest("GET", scenario.Path, http.NoBody)
+			if scenario.Host != "" {
+				request.Host = scenario.Host
+			}
+			response, err := router.Test(request)
+			if err != nil {
+				t.Fatalf("Router test failed: %v", err)
+			}
+			defer response.Body.Close()
+			if response.StatusCode != scenario.ExpectedCode {
+				t.Errorf("%s %s (Host: %s) should have returned %d, but returned %d instead", request.Method, request.URL, scenario.Host, scenario.ExpectedCode, response.StatusCode)
+			}
+			if scenario.ShouldContain != "" || scenario.ShouldExclude != "" {
+				body, err := io.ReadAll(response.Body)
+				if err != nil {
+					t.Fatalf("Failed to read response body: %v", err)
+				}
+				bodyStr := string(body)
+				if scenario.ShouldContain != "" && !contains(bodyStr, scenario.ShouldContain) {
+					t.Errorf("expected body to contain %q, got: %s", scenario.ShouldContain, bodyStr)
+				}
+				if scenario.ShouldExclude != "" && contains(bodyStr, scenario.ShouldExclude) {
+					t.Errorf("expected body NOT to contain %q, got: %s", scenario.ShouldExclude, bodyStr)
+				}
+			}
+		})
 	}
 }
 

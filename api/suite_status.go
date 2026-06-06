@@ -13,6 +13,7 @@ import (
 // SuiteStatuses handles requests to retrieve all suite statuses
 func SuiteStatuses(cfg *config.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		tenantName := resolveTenantName(cfg, c.Hostname())
 		page, pageSize := extractPageAndPageSizeFromRequest(c, 100)
 		params := paging.NewSuiteStatusParams().WithPagination(page, pageSize)
 		suiteStatuses, err := store.Get().GetAllSuiteStatuses(params)
@@ -24,10 +25,22 @@ func SuiteStatuses(cfg *config.Config) fiber.Handler {
 		// If no statuses exist yet, create empty ones from config
 		if len(suiteStatuses) == 0 {
 			for _, s := range cfg.Suites {
-				if s.IsEnabled() {
+				if s.IsEnabled() && s.BelongsToTenant(tenantName) {
 					suiteStatuses = append(suiteStatuses, suite.NewStatus(s))
 				}
 			}
+		} else {
+			var filtered []*suite.Status
+			for _, s := range suiteStatuses {
+				if su := cfg.GetSuiteByKey(s.Key); su != nil {
+					if su.BelongsToTenant(tenantName) {
+						filtered = append(filtered, s)
+					}
+				} else if tenantName == "" {
+					filtered = append(filtered, s)
+				}
+			}
+			suiteStatuses = filtered
 		}
 		return c.Status(fiber.StatusOK).JSON(suiteStatuses)
 	}
@@ -36,8 +49,14 @@ func SuiteStatuses(cfg *config.Config) fiber.Handler {
 // SuiteStatus handles requests to retrieve a single suite's status
 func SuiteStatus(cfg *config.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		tenantName := resolveTenantName(cfg, c.Hostname())
 		page, pageSize := extractPageAndPageSizeFromRequest(c, 100)
 		key := c.Params("key")
+		if su := cfg.GetSuiteByKey(key); su != nil {
+			if !su.BelongsToTenant(tenantName) {
+				return c.Status(404).JSON(fiber.Map{"error": fmt.Sprintf("Suite with key '%s' not found", key)})
+			}
+		}
 		params := paging.NewSuiteStatusParams().WithPagination(page, pageSize)
 		status, err := store.Get().GetSuiteStatusByKey(key, params)
 		if err != nil || status == nil {

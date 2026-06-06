@@ -40,6 +40,9 @@ type Suite struct {
 	// Group the suite belongs to. Used for grouping multiple suites together.
 	Group string `yaml:"group,omitempty"`
 
+	// Tenants the suite belongs to. Used for multi-tenant support.
+	Tenants []string `yaml:"tenants,omitempty"`
+
 	// Enabled defines whether the suite is enabled
 	Enabled *bool `yaml:"enabled,omitempty"`
 
@@ -67,6 +70,20 @@ func (s *Suite) IsEnabled() bool {
 // Key returns a unique key for the suite
 func (s *Suite) Key() string {
 	return key.ConvertGroupAndNameToKey(s.Group, s.Name)
+}
+
+// BelongsToTenant reports whether this suite is visible on the given tenant domain.
+// An empty tenantName represents the default (unbranded) domain.
+func (s *Suite) BelongsToTenant(tenantName string) bool {
+	if tenantName == "" {
+		return len(s.Tenants) == 0
+	}
+	for _, t := range s.Tenants {
+		if t == tenantName {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateAndSetDefaults validates the suite configuration and sets default values

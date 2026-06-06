@@ -195,6 +195,15 @@ func (config *Config) GetExternalEndpointByKey(key string) *endpoint.ExternalEnd
 	return nil
 }
 
+func (config *Config) GetSuiteByKey(key string) *suite.Suite {
+	for _, s := range config.Suites {
+		if s.Key() == key {
+			return s
+		}
+	}
+	return nil
+}
+
 // HasLoadedConfigurationBeenModified returns whether one of the file that the
 // configuration has been loaded from has been modified since it was last read
 func (config *Config) HasLoadedConfigurationBeenModified() bool {
@@ -541,6 +550,13 @@ func ValidateTenantEndpointsCrossValidation(config *Config) error {
 		for _, ref := range ee.Tenants {
 			if !validTenants[ref] {
 				return fmt.Errorf("external endpoint %q references unknown tenant %q", ee.Key(), ref)
+			}
+		}
+	}
+	for _, s := range config.Suites {
+		for _, ref := range s.Tenants {
+			if !validTenants[ref] {
+				return fmt.Errorf("suite %q references unknown tenant %q", s.Key(), ref)
 			}
 		}
 	}
