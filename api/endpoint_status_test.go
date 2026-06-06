@@ -9,6 +9,7 @@ import (
 
 	"github.com/TwiN/gatus/v5/config"
 	"github.com/TwiN/gatus/v5/config/endpoint"
+	"github.com/TwiN/gatus/v5/config/tenant"
 	"github.com/TwiN/gatus/v5/storage"
 	"github.com/TwiN/gatus/v5/storage/store"
 	"github.com/TwiN/gatus/v5/watchdog"
@@ -163,14 +164,42 @@ func TestEndpointStatuses(t *testing.T) {
 	secondResult.Timestamp = time.Time{}
 	api := New(&config.Config{
 		Metrics: true,
+		Endpoints: []*endpoint.Endpoint{
+			&testEndpoint,
+			{
+				Name: "tenant-endpoint",
+				Group: "group",
+				Tenants: []string{"client-a"},
+			},
+		},
+		Tenants: []*tenant.Tenant{
+			{
+				Name: "client-a",
+				Domains: []string{"status.clienta.com"},
+			},
+		},
 		Storage: &storage.Config{
 			MaximumNumberOfResults: storage.DefaultMaximumNumberOfResults,
 			MaximumNumberOfEvents:  storage.DefaultMaximumNumberOfEvents,
 		},
 	})
+	
+	tenantEndpoint := &endpoint.Endpoint{
+		Name: "tenant-endpoint",
+		Group: "group",
+	}
+	store.Get().InsertEndpointResult(tenantEndpoint, &endpoint.Result{
+		Hostname:              "example.org",
+		HTTPStatus:            200,
+		Connected:             true,
+		Success:               true,
+		Duration:              150 * time.Millisecond,
+	})
+	
 	router := api.Router()
 	type Scenario struct {
 		Name         string
+		Host         string
 		Path         string
 		ExpectedCode int
 		ExpectedBody string
@@ -206,11 +235,28 @@ func TestEndpointStatuses(t *testing.T) {
 			ExpectedCode: http.StatusOK,
 			ExpectedBody: `[{"name":"name","group":"group","key":"group_name","results":[{"status":200,"hostname":"example.org","duration":150000000,"conditionResults":[{"condition":"[STATUS] == 200","success":true},{"condition":"[RESPONSE_TIME] \u003c 500","success":true},{"condition":"[CERTIFICATE_EXPIRATION] \u003c 72h","success":true}],"success":true,"timestamp":"0001-01-01T00:00:00Z"},{"status":200,"hostname":"example.org","duration":750000000,"errors":["error-1","error-2"],"conditionResults":[{"condition":"[STATUS] == 200","success":true},{"condition":"[RESPONSE_TIME] \u003c 500","success":false},{"condition":"[CERTIFICATE_EXPIRATION] \u003c 72h","success":false}],"success":false,"timestamp":"0001-01-01T00:00:00Z"}]}]`,
 		},
+		{
+			Name:         "tenant-filtering-client-a",
+			Host:         "status.clienta.com",
+			Path:         "/api/v1/endpoints/statuses",
+			ExpectedCode: http.StatusOK,
+			ExpectedBody: `[{"name":"tenant-endpoint","group":"group","key":"group_tenant-endpoint","results":[{"status":200,"hostname":"example.org","duration":150000000,"success":true,"timestamp":"0001-01-01T00:00:00Z"}]}]`,
+		},
+		{
+			Name:         "tenant-filtering-no-match",
+			Host:         "status.clientb.com", // Returns default endpoints (isolated)
+			Path:         "/api/v1/endpoints/statuses",
+			ExpectedCode: http.StatusOK,
+			ExpectedBody: `[{"name":"name","group":"group","key":"group_name","results":[{"status":200,"hostname":"example.org","duration":150000000,"conditionResults":[{"condition":"[STATUS] == 200","success":true},{"condition":"[RESPONSE_TIME] \u003c 500","success":true},{"condition":"[CERTIFICATE_EXPIRATION] \u003c 72h","success":true}],"success":true,"timestamp":"0001-01-01T00:00:00Z"},{"status":200,"hostname":"example.org","duration":750000000,"errors":["error-1","error-2"],"conditionResults":[{"condition":"[STATUS] == 200","success":true},{"condition":"[RESPONSE_TIME] \u003c 500","success":false},{"condition":"[CERTIFICATE_EXPIRATION] \u003c 72h","success":false}],"success":false,"timestamp":"0001-01-01T00:00:00Z"}]}]`,
+		},
 	}
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.Name, func(t *testing.T) {
 			request := httptest.NewRequest("GET", scenario.Path, http.NoBody)
+			if scenario.Host != "" {
+				request.Host = scenario.Host
+			}
 			response, err := router.Test(request)
 			if err != nil {
 				return

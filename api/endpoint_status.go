@@ -22,7 +22,15 @@ import (
 func EndpointStatuses(cfg *config.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		page, pageSize := extractPageAndPageSizeFromRequest(c, cfg.Storage.MaximumNumberOfResults)
-		value, exists := cache.Get(fmt.Sprintf("endpoint-status-%d-%d", page, pageSize))
+		
+		tenant := cfg.GetTenantByDomain(c.Hostname())
+		tenantName := ""
+		if tenant != nil {
+			tenantName = tenant.Name
+		}
+		
+		cacheKey := fmt.Sprintf("endpoint-status-%s-%d-%d", tenantName, page, pageSize)
+		value, exists := cache.Get(cacheKey)
 		var data []byte
 		if !exists {
 			endpointStatuses, err := store.Get().GetAllEndpointStatuses(paging.NewEndpointStatusParams().WithResults(page, pageSize))
@@ -36,13 +44,43 @@ func EndpointStatuses(cfg *config.Config) fiber.Handler {
 			} else if endpointStatusesFromRemote != nil {
 				endpointStatuses = append(endpointStatuses, endpointStatusesFromRemote...)
 			}
+			
+			// Filter by tenant
+			var filteredStatuses []*endpoint.Status
+			for _, s := range endpointStatuses {
+				ep := cfg.GetEndpointByKey(s.Key)
+				if ep == nil {
+					// Fallback for endpoints not in config (e.g. remote endpoints or old store data)
+					if tenantName == "" {
+						filteredStatuses = append(filteredStatuses, s)
+					}
+					continue
+				}
+				
+				if tenantName == "" {
+					// Default tenant: only show endpoints with no tenants
+					if len(ep.Tenants) == 0 {
+						filteredStatuses = append(filteredStatuses, s)
+					}
+				} else {
+					// Specific tenant: only show endpoints that include this tenant
+					for _, t := range ep.Tenants {
+						if t == tenantName {
+							filteredStatuses = append(filteredStatuses, s)
+							break
+						}
+					}
+				}
+			}
+			endpointStatuses = filteredStatuses
+
 			// Marshal endpoint statuses to JSON
 			data, err = json.Marshal(endpointStatuses)
 			if err != nil {
 				logr.Errorf("[api.EndpointStatuses] Unable to marshal object to JSON: %s", err.Error())
 				return c.Status(500).SendString("unable to marshal object to JSON")
 			}
-			cache.SetWithTTL(fmt.Sprintf("endpoint-status-%d-%d", page, pageSize), data, cacheTTL)
+			cache.SetWithTTL(cacheKey, data, cacheTTL)
 		} else {
 			data = value.([]byte)
 		}
@@ -92,6 +130,32 @@ func EndpointStatus(cfg *config.Config) fiber.Handler {
 			logr.Errorf("[api.EndpointStatus] Failed to decode key: %s", err.Error())
 			return c.Status(400).SendString("invalid key encoding")
 		}
+		
+		ep := cfg.GetEndpointByKey(key)
+		if ep != nil {
+			tenant := cfg.GetTenantByDomain(c.Hostname())
+			tenantName := ""
+			if tenant != nil {
+				tenantName = tenant.Name
+			}
+			
+			hasAccess := false
+			if tenantName == "" {
+				hasAccess = len(ep.Tenants) == 0
+			} else {
+				for _, t := range ep.Tenants {
+					if t == tenantName {
+						hasAccess = true
+						break
+					}
+				}
+			}
+			
+			if !hasAccess {
+				return c.Status(404).SendString("not found")
+			}
+		}
+		
 		endpointStatus, err := store.Get().GetEndpointStatusByKey(key, paging.NewEndpointStatusParams().WithResults(page, pageSize).WithEvents(1, cfg.Storage.MaximumNumberOfEvents))
 		if err != nil {
 			if errors.Is(err, common.ErrEndpointNotFound) {
