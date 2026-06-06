@@ -88,9 +88,9 @@ func (a *API) createRouter(cfg *config.Config) *fiber.App {
 	// This endpoint requires authz with bearer token, so technically it is protected
 	unprotectedAPIRouter.Post("/v1/endpoints/:key/external", CreateExternalEndpointResult(cfg))
 	// SPA
-	app.Get("/", SinglePageApplication(cfg.UI))
-	app.Get("/endpoints/:key", SinglePageApplication(cfg.UI))
-	app.Get("/suites/:key", SinglePageApplication(cfg.UI))
+	app.Get("/", SinglePageApplication(cfg))
+	app.Get("/endpoints/:key", SinglePageApplication(cfg))
+	app.Get("/suites/:key", SinglePageApplication(cfg))
 	// Health endpoint
 	healthHandler := health.Handler().WithJSON(true)
 	app.Get("/health", func(c *fiber.Ctx) error {

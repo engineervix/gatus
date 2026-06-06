@@ -10,6 +10,7 @@ import (
 
 	"github.com/TwiN/gatus/v5/config"
 	"github.com/TwiN/gatus/v5/config/endpoint"
+	"github.com/TwiN/gatus/v5/config/tenant"
 	"github.com/TwiN/gatus/v5/config/ui"
 	"github.com/TwiN/gatus/v5/storage/store"
 	"github.com/TwiN/gatus/v5/watchdog"
@@ -33,6 +34,15 @@ func TestSinglePageApplication(t *testing.T) {
 		UI: &ui.Config{
 			Title: "example-title",
 		},
+		Tenants: []*tenant.Tenant{
+			{
+				Name: "client",
+				Domains: []string{"status.client.com"},
+				UI: &ui.Config{
+					Title: "Client Status",
+				},
+			},
+		},
 	}
 	watchdog.UpdateEndpointStatus(cfg.Endpoints[0], &endpoint.Result{Success: true, Duration: time.Millisecond, Timestamp: time.Now()})
 	watchdog.UpdateEndpointStatus(cfg.Endpoints[1], &endpoint.Result{Success: false, Duration: time.Second, Timestamp: time.Now()})
@@ -40,6 +50,7 @@ func TestSinglePageApplication(t *testing.T) {
 	router := api.Router()
 	type Scenario struct {
 		Name              string
+		Host              string
 		Path              string
 		Gzip              bool
 		CookieDarkMode    bool
@@ -50,6 +61,16 @@ func TestSinglePageApplication(t *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name:              "frontend-home",
+			Host:              "status.gatus.io", // Doesn't match any tenant
+			Path:              "/",
+			CookieDarkMode:    true,
+			UIDarkMode:        false,
+			ExpectedDarkTheme: true,
+			ExpectedCode:      200,
+		},
+		{
+			Name:              "frontend-tenant-home",
+			Host:              "status.client.com", // Matches tenant
 			Path:              "/",
 			CookieDarkMode:    true,
 			UIDarkMode:        false,
@@ -77,6 +98,9 @@ func TestSinglePageApplication(t *testing.T) {
 		t.Run(scenario.Name, func(t *testing.T) {
 			cfg.UI.DarkMode = &scenario.UIDarkMode
 			request := httptest.NewRequest("GET", scenario.Path, http.NoBody)
+			if scenario.Host != "" {
+				request.Host = scenario.Host
+			}
 			if scenario.Gzip {
 				request.Header.Set("Accept-Encoding", "gzip")
 			}
@@ -93,8 +117,13 @@ func TestSinglePageApplication(t *testing.T) {
 			}
 			body, _ := io.ReadAll(response.Body)
 			strBody := string(body)
-			if !strings.Contains(strBody, cfg.UI.Title) {
-				t.Errorf("%s %s should have contained the title", request.Method, request.URL)
+			
+			expectedTitle := cfg.UI.Title
+			if scenario.Host == "status.client.com" {
+				expectedTitle = "Client Status"
+			}
+			if !strings.Contains(strBody, expectedTitle) {
+				t.Errorf("%s %s (Host: %s) should have contained the title %s", request.Method, request.URL, scenario.Host, expectedTitle)
 			}
 			if scenario.ExpectedDarkTheme && !strings.Contains(strBody, "class=\"dark\"") {
 				t.Errorf("%s %s should have responded with dark mode headers", request.Method, request.URL)

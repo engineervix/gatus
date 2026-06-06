@@ -4,14 +4,19 @@ import (
 	_ "embed"
 	"html/template"
 
+	"github.com/TwiN/gatus/v5/config"
 	"github.com/TwiN/gatus/v5/config/ui"
 	static "github.com/TwiN/gatus/v5/web"
 	"github.com/TwiN/logr"
 	"github.com/gofiber/fiber/v2"
 )
 
-func SinglePageApplication(uiConfig *ui.Config) fiber.Handler {
+func SinglePageApplication(cfg *config.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		uiConfig := cfg.UI
+		if t := cfg.GetTenantByDomain(c.Hostname()); t != nil && t.UI != nil {
+			uiConfig = t.UI
+		}
 		vd := ui.ViewData{UI: uiConfig}
 		{
 			themeFromCookie := string(c.Request().Header.Cookie("theme"))
