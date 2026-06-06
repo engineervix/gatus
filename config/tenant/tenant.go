@@ -29,10 +29,11 @@ func (t *Tenant) ValidateAndSetDefaults() error {
 	if len(t.Domains) == 0 {
 		return ErrTenantDomainsEmpty
 	}
-	if t.UI != nil {
-		if err := t.UI.ValidateAndSetDefaults(); err != nil {
-			return err
-		}
+	if t.UI == nil {
+		t.UI = &ui.Config{}
+	}
+	if err := t.UI.ValidateAndSetDefaults(); err != nil {
+		return err
 	}
 	return nil
 }

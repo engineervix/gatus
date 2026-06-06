@@ -15,6 +15,12 @@ func TestTenant_ValidateAndSetDefaults(t *testing.T) {
 		if err := tenant.ValidateAndSetDefaults(); err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
+		if tenant.UI == nil {
+			t.Error("expected tenant.UI to be initialised with defaults, got nil")
+		}
+		if tenant.UI != nil && tenant.UI.Header == "" {
+			t.Error("expected tenant.UI.Header to have a default value after ValidateAndSetDefaults")
+		}
 	})
 
 	t.Run("valid-tenant-with-ui", func(t *testing.T) {

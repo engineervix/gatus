@@ -42,6 +42,11 @@ func TestSinglePageApplication(t *testing.T) {
 					Title: "Client Status",
 				},
 			},
+			{
+				Name:    "no-ui-tenant",
+				Domains: []string{"status.noui.com"},
+				// No UI block — must not inherit operator branding
+			},
 		},
 	}
 	watchdog.UpdateEndpointStatus(cfg.Endpoints[0], &endpoint.Result{Success: true, Duration: time.Millisecond, Timestamp: time.Now()})
@@ -59,6 +64,13 @@ func TestSinglePageApplication(t *testing.T) {
 		ExpectedDarkTheme bool
 	}
 	scenarios := []Scenario{
+		{
+			Name:              "tenant-without-ui-does-not-inherit-operator-title",
+			Host:              "status.noui.com",
+			Path:              "/",
+			ExpectedCode:      200,
+			ExpectedDarkTheme: true, // default ui config has dark mode on
+		},
 		{
 			Name:              "frontend-home",
 			Host:              "status.gatus.io", // Doesn't match any tenant
@@ -118,12 +130,18 @@ func TestSinglePageApplication(t *testing.T) {
 			body, _ := io.ReadAll(response.Body)
 			strBody := string(body)
 			
-			expectedTitle := cfg.UI.Title
-			if scenario.Host == "status.client.com" {
-				expectedTitle = "Client Status"
-			}
-			if !strings.Contains(strBody, expectedTitle) {
-				t.Errorf("%s %s (Host: %s) should have contained the title %s", request.Method, request.URL, scenario.Host, expectedTitle)
+			if scenario.Host == "status.noui.com" {
+				if strings.Contains(strBody, cfg.UI.Title) {
+					t.Errorf("%s %s (Host: %s) must not contain operator title %q", request.Method, request.URL, scenario.Host, cfg.UI.Title)
+				}
+			} else {
+				expectedTitle := cfg.UI.Title
+				if scenario.Host == "status.client.com" {
+					expectedTitle = "Client Status"
+				}
+				if !strings.Contains(strBody, expectedTitle) {
+					t.Errorf("%s %s (Host: %s) should have contained the title %s", request.Method, request.URL, scenario.Host, expectedTitle)
+				}
 			}
 			if scenario.ExpectedDarkTheme && !strings.Contains(strBody, "class=\"dark\"") {
 				t.Errorf("%s %s should have responded with dark mode headers", request.Method, request.URL)

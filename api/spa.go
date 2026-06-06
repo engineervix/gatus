@@ -14,8 +14,14 @@ import (
 func SinglePageApplication(cfg *config.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		uiConfig := cfg.UI
-		if t := cfg.GetTenantByDomain(c.Hostname()); t != nil && t.UI != nil {
-			uiConfig = t.UI
+		if t := cfg.GetTenantByDomain(c.Hostname()); t != nil {
+			if t.UI != nil {
+				uiConfig = t.UI
+			} else {
+				// Tenant matched but has no UI block — serve clean defaults,
+				// not the operator's branding.
+				uiConfig = ui.GetDefaultConfig()
+			}
 		}
 		vd := ui.ViewData{UI: uiConfig}
 		{
