@@ -23,6 +23,7 @@ import (
 	"github.com/TwiN/gatus/v5/config/maintenance"
 	"github.com/TwiN/gatus/v5/config/remote"
 	"github.com/TwiN/gatus/v5/config/suite"
+	"github.com/TwiN/gatus/v5/config/tenant"
 	"github.com/TwiN/gatus/v5/config/tunneling"
 	"github.com/TwiN/gatus/v5/config/ui"
 	"github.com/TwiN/gatus/v5/config/web"
@@ -107,6 +108,9 @@ type Config struct {
 	// UI is the configuration for the UI
 	UI *ui.Config `yaml:"ui,omitempty"`
 
+	// Tenants is the configuration for multiple tenants
+	Tenants []*tenant.Tenant `yaml:"tenants,omitempty"`
+
 	// Maintenance is the configuration for creating a maintenance window in which no alerts are sent
 	Maintenance *maintenance.Config `yaml:"maintenance,omitempty"`
 
@@ -147,6 +151,21 @@ func (config *Config) GetUniqueExtraMetricLabels() []string {
 		sort.Strings(labels)
 	}
 	return labels
+}
+
+// GetTenantByDomain returns the first tenant that matches the provided domain
+func (config *Config) GetTenantByDomain(domain string) *tenant.Tenant {
+	if config.Tenants == nil {
+		return nil
+	}
+	for _, t := range config.Tenants {
+		for _, d := range t.Domains {
+			if strings.EqualFold(d, domain) {
+				return t
+			}
+		}
+	}
+	return nil
 }
 
 func (config *Config) GetEndpointByKey(key string) *endpoint.Endpoint {
@@ -314,6 +333,9 @@ func parseAndValidateConfigBytes(yamlBytes []byte) (config *Config, err error) {
 		if err := ValidateUIConfig(config); err != nil {
 			return nil, err
 		}
+		if err := ValidateTenantsConfig(config); err != nil {
+			return nil, err
+		}
 		if err := ValidateMaintenanceConfig(config); err != nil {
 			return nil, err
 		}
@@ -458,6 +480,23 @@ func ValidateUIConfig(config *Config) error {
 		if err := config.UI.ValidateAndSetDefaults(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func ValidateTenantsConfig(config *Config) error {
+	if config.Tenants != nil {
+		tenantNames := make(map[string]bool)
+		for _, t := range config.Tenants {
+			if tenantNames[t.Name] {
+				return fmt.Errorf("duplicate tenant name: %s", t.Name)
+			}
+			tenantNames[t.Name] = true
+			if err := t.ValidateAndSetDefaults(); err != nil {
+				return fmt.Errorf("invalid tenant '%s': %w", t.Name, err)
+			}
+		}
+		logr.Infof("[config.ValidateTenantsConfig] Validated %d tenant(s)", len(config.Tenants))
 	}
 	return nil
 }
